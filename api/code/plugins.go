@@ -43,6 +43,8 @@ const pluginNetworkReconcileInterval = time.Minute * 5
 const (
 	pluginRuntimeDefault = "default"
 	pluginRuntimeKVM     = "kvm"
+
+	sandboxedPluginContentSecurityPolicy = "default-src 'self'"
 )
 
 type NetworkCapabilities struct {
@@ -328,6 +330,12 @@ func PluginProxy(config PluginConfig) (*httputil.ReverseProxy, error) {
 			//Empty headers from the request
 			//SECURITY benefit: API extensions do not receive credentials
 			req.Header = http.Header{}
+		},
+		ModifyResponse: func(response *http.Response) error {
+			if config.HasUI && config.IsUISandboxed() {
+				response.Header.Set("Content-Security-Policy", sandboxedPluginContentSecurityPolicy)
+			}
+			return nil
 		},
 		Transport: &http.Transport{
 			Dial: func(network, addr string) (net.Conn, error) {
@@ -949,7 +957,7 @@ func generatePFWAPIToken() {
 	pfw_config["APIToken"] = pfw_token.Token
 
 	file, _ := json.MarshalIndent(pfw_config, "", " ")
-	err = ioutil.WriteFile(pfwConfigFile, file, 0600)
+	err = writeFileAtomic(pfwConfigFile, file, 0600)
 	if err != nil {
 		fmt.Println("failed to write pfw configuration", err)
 	}
@@ -2222,7 +2230,7 @@ func modifyCustomComposePaths(w http.ResponseWriter, r *http.Request) {
 	}
 
 	file, _ := json.MarshalIndent(newList, "", " ")
-	err = ioutil.WriteFile(CustomComposeAllowPath, file, 0600)
+	err = writeFileAtomic(CustomComposeAllowPath, file, 0600)
 	if err != nil {
 		log.Println("failed to write custom compose paths configuration", err)
 		http.Error(w, err.Error(), 400)
@@ -2412,7 +2420,7 @@ func installUserPluginConfig(plugin PluginConfig) bool {
 				if err != nil {
 					SprbusPublish("plugin:install:failure", map[string]string{"Name": plugin.Name, "GitURL": plugin.GitURL, "Reason": "Failed to make path for API token for plugin"})
 				}
-				err = ioutil.WriteFile(plugin.InstallTokenPath, []byte(token.Token), 0600)
+				err = writeFileAtomic(cleanPath, []byte(token.Token), 0600)
 				if err == nil {
 					SprbusPublish("plugin:install:status", map[string]string{"Name": plugin.Name, "GitURL": plugin.GitURL, "Reason": "Installed API token"})
 				} else {
@@ -2443,7 +2451,7 @@ func installUserPluginConfig(plugin PluginConfig) bool {
 	//add ComposeFilePath to whitelist
 	curList = append(curList, plugin.ComposeFilePath)
 	file, _ := json.MarshalIndent(curList, "", " ")
-	err = ioutil.WriteFile(CustomComposeAllowPath, file, 0600)
+	err = writeFileAtomic(CustomComposeAllowPath, file, 0600)
 	if err != nil {
 		log.Println("failed to write custom compose paths configuration", err)
 		SprbusPublish("plugin:install:failure", map[string]string{"GitURL": plugin.GitURL, "Reason": "Failed to add compose file to whitelist"})

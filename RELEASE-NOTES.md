@@ -1,6 +1,14 @@
 
 # Secure Programmable Router (SPR) Release Notes
 
+## v1.2.1
+**Fixes**
+- Support more rustap configurations
+- Harden file writes
+- Update hostap version
+- Add a CSP of default-src self for sandboxed iframes
+- Fix dhcp interface regex for plugins
+
 ## v1.2.0
 **Features**
 - krun/KVM support for plugins
