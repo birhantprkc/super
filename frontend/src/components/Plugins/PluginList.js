@@ -39,7 +39,7 @@ import { Tooltip } from 'components/Tooltip'
 import ModalForm from 'components/ModalForm'
 import EditPlugin from 'components/Plugins/EditPlugin'
 
-import { pluginAPI } from 'api'
+import { api, pluginAPI } from 'api'
 import { alertState } from 'AppContext'
 
 const NO_POLICY = 'no attestation policy for this image'
@@ -492,18 +492,24 @@ const PluginList = ({ list, deleteListItem, notifyChange, ...props }) => {
       .update(plugin)
       .then((plugins) => {
         notifyChange(plugins)
+
+        if (plugin.Plus == true) {
+          let action =
+            Enabled == false
+              ? pluginAPI.stopPlusExtension(plugin.Name)
+              : pluginAPI.startPlusExtension(plugin.Name)
+
+          action.catch((err) => {
+            alertState.error(
+              `Failed to ${Enabled ? 'start' : 'stop'} ${plugin.Name}: ` +
+                (err?.message || err)
+            )
+          })
+        }
       })
       .catch((err) => {
         alertState.error('Failed to update plugin state: ' + err.message)
       })
-
-    if (plugin.Plus == true) {
-      if (Enabled == false) {
-        pluginAPI.stopPlusExtension(plugin.Name)
-      } else {
-        pluginAPI.startPlusExtension(plugin.Name)
-      }
-    }
   }
 
   const handleRestart = (plugin) => {
