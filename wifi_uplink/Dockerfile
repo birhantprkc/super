@@ -1,14 +1,14 @@
-# syntax=docker/dockerfile:1@sha256:87999aa3d42bdc6bea60565083ee17e86d1f3339802f543c0d03998580f9cb89
+# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 ARG ALPINE_REF=alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
-ARG CONTAINER_TEMPLATE_REF=ghcr.io/spr-networks/container_template@sha256:869ada7b121e9a0c552674042d32e801da3c4d04145638d9e722918c6377e65f
+ARG CONTAINER_TEMPLATE_REF=ghcr.io/spr-networks/container_template@sha256:26fb53f05f7947ecd1d887d197bd4e74461e6f5b0d0a80d07c3509b9ef9582b8
 ARG SOURCE_DATE_EPOCH
 
 FROM ${ALPINE_REF} AS rust-client
 ARG TARGETARCH
-ARG OXWIFID_VERSION=0.1.6
-ARG OXWIFID_ARM64_URL=https://github.com/spr-networks/oxwifid/releases/download/v0.1.6/barely-ap-v0.1.6-aarch64-unknown-linux-musl.tar.gz
-ARG OXWIFID_ARM64_ARCHIVE_SHA256=25ee56295deed38526163cfa0f8b76467bffc752ec82dbfb7d679f9edf6e7e2c
-ARG OXWIFID_BARELY_CLI_ARM64_SHA256=5da0d33d6df458360e632e8758d0c34f7e900c0c1bd59563a827748d43341141
+ARG OXWIFID_VERSION=0.1.8
+ARG OXWIFID_ARM64_URL=https://github.com/spr-networks/oxwifid/releases/download/v0.1.8/barely-ap-v0.1.8-aarch64-unknown-linux-musl.tar.gz
+ARG OXWIFID_ARM64_ARCHIVE_SHA256=7c015bb4597382e465572e25449afc3fed23791d87f8e711b6935084aae3f5c5
+ARG OXWIFID_BARELY_CLI_ARM64_SHA256=7de462777921ee22ad3c4a9298ed4e299521333399bdb65180a19617238927de
 RUN set -eux; \
     case "${TARGETARCH}" in \
       arm64) \
@@ -27,7 +27,7 @@ RUN set -eux; \
 
 FROM ${CONTAINER_TEMPLATE_REF}
 ENV DEBIAN_FRONTEND=noninteractive
-ARG UBUNTU_SNAPSHOT=20260701T000000Z
+ARG UBUNTU_SNAPSHOT=20260816T000000Z
 RUN set -eux; \
     printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: noble noble-updates noble-security\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list.d/ubuntu.sources; \
     printf 'APT::Install-Recommends "false";\nAcquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99reproducible

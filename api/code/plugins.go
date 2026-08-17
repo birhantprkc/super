@@ -1295,6 +1295,8 @@ func preparePluginDeviceNetworkCapabilities(plugin PluginConfig) error {
 		return fmt.Errorf("authorize DHCP for plugin %s: %w", plugin.Name, err)
 	}
 
+	deleteLanInterface(plugin.NetworkCapabilities.Interface)
+
 	Groupsmtx.Lock()
 	defer Groupsmtx.Unlock()
 	Devicesmtx.Lock()
@@ -2207,7 +2209,7 @@ type StationInfo map[string]string
 type LeafStations struct {
 	LeafIP   string
 	Stations map[string]StationInfo // MAC -> station info
-	Error    error
+	Error    string                 `json:",omitempty"`
 }
 
 // fetchAllLeafStations fetches station information from all leaf routers via mesh plugin

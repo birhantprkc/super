@@ -14,6 +14,18 @@ import * as jsonpath from 'jsonpath'
 let server = null
 let opts = {}
 
+// Stop intercepting network traffic when the app leaves mock mode. MirageJS
+// patches global fetch/XHR on createServer, so without this a session that
+// ever used the "mock" hostname can no longer reach a real router.
+export const shutdownMockAPI = () => {
+  if (server) {
+    try {
+      server.shutdown()
+    } catch (e) {}
+    server = null
+  }
+}
+
 const MODEL_ARTIFACT_HOSTS = new Set([
   'huggingface.co',
   'raw.githubusercontent.com'
@@ -104,6 +116,18 @@ let mockGeoBlockConfig = {
     }
   ],
   RefreshSeconds: 86400
+}
+
+let mockAllowlistConfig = {
+  Allowlists: [
+    {
+      Name: 'work-services',
+      CIDRs: ['203.0.113.0/24'],
+      ASNs: [{ ASN: 54113, Name: 'FASTLY, US' }],
+      Domains: ['github.com', '*.githubusercontent.com']
+    }
+  ],
+  RefreshSeconds: 300
 }
 
 const mockASNTable = [
@@ -1339,9 +1363,10 @@ export default function MockAPI(props = null) {
           return new Response(401, {}, { error: 'invalid auth' })
         }
 
-        let ups = new URLSearchParams(request.url.replace(/^\/device/, ''))
-        let id = ups.get('identity')
-        let copy = ups.get('copy')
+        // NOTE use mirage's queryParams: React Native's URLSearchParams shim
+        // throws "not implemented" from get(), 500ing this route on iOS.
+        let id = request.queryParams.identity
+        let copy = request.queryParams.copy
 
         let MAC = copy || id
 
@@ -1402,8 +1427,7 @@ export default function MockAPI(props = null) {
           return new Response(401, {}, { error: 'invalid auth' })
         }
 
-        let ups = new URLSearchParams(request.url.replace(/^\/device/, ''))
-        let id = ups.get('identity')
+        let id = request.queryParams.identity
 
         return schema.devices.findBy({ MAC: id }).destroy()
       })
@@ -3221,6 +3245,38 @@ export default function MockAPI(props = null) {
       this.get('/firewall/geo_block/status', () => mockGeoBlockStatus())
 
       this.put('/firewall/geo_block/refresh', () => mockGeoBlockStatus())
+
+      const mockAllowlistStatus = () => ({
+        LastRefresh: new Date(Date.now() - 5 * 60e3).toISOString(),
+        Allowlists: mockAllowlistConfig.Allowlists.map((item) => ({
+          Name: item.Name,
+          Policy: `allowlist:${item.Name}`,
+          RangesProgrammed:
+            item.CIDRs.length + item.ASNs.length * 10 + item.Domains.length,
+          Sources: [
+            ...item.CIDRs.map((cidr) => ({ Type: 'cidr', Key: cidr, Ranges: 1 })),
+            ...item.ASNs.map((asn) => ({
+              Type: 'asn',
+              Key: `AS${asn.ASN}`,
+              Ranges: 10
+            })),
+            ...item.Domains.map((domain) => ({
+              Type: 'domain',
+              Key: domain,
+              Ranges: domain.startsWith('*.') ? 0 : 1,
+              Addresses: 1
+            }))
+          ]
+        }))
+      })
+
+      this.get('/firewall/allowlist/config', () => mockAllowlistConfig)
+      this.put('/firewall/allowlist/config', (schema, request) => {
+        mockAllowlistConfig = JSON.parse(request.requestBody)
+        return mockAllowlistConfig
+      })
+      this.get('/firewall/allowlist/status', () => mockAllowlistStatus())
+      this.put('/firewall/allowlist/refresh', () => mockAllowlistStatus())
 
       this.get('/plugins/lookup/asn_search/:query', (schema, request) => {
         let q = `${request.params.query}`.toLowerCase()

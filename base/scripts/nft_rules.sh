@@ -52,6 +52,10 @@ table inet filter {
     type ifname;
   }
 
+  set noapi_interfaces {
+    type ifname;
+  }
+
   # clients to block from the api, for example those with
   # the guest policy or noapi policy
   set api_block {
@@ -152,6 +156,11 @@ table inet filter {
 
   map internet_access {
     type ipv4_addr . ifname: verdict;
+  }
+
+  map allowlist_sources {
+    type ipv4_addr . ifname: verdict;
+    flags interval;
   }
 
   # oifname . ip saddr . iifname
@@ -270,10 +279,6 @@ table inet filter {
     #jump USERDEF_INPUT
     iif lo counter accept
 
-    # Mark whether the input came from upstream (wan:in) or local network (lan:in)
-    iifname @uplink_interfaces log prefix "wan:in " group 0
-    iifname != @uplink_interfaces log prefix "lan:in " group 0
-
     # block lan ranges from uplink interfaces
     iifname @uplink_interfaces ip saddr @supernetworks goto DROPLOGINP
     iifname @uplink_interfaces ip daddr @supernetworks goto DROPLOGINP
@@ -321,12 +326,18 @@ table inet filter {
 
     counter jump F_EST_RELATED
 
+    # Mark whether the input came from upstream (wan:in) or local network (lan:in)
+    iifname @uplink_interfaces log prefix "wan:in " group 0
+    iifname != @uplink_interfaces log prefix "lan:in " group 0
+
     # DNS Allow rules
     # Docker can DNS
     $(if [ "$DOCKERIF" ]; then echo "iif $DOCKERIF ip saddr $DOCKERNET udp dport 53 counter accept"; fi)
 
     # Dynamic verdict map for dns access
     counter udp dport 53  ip saddr . iifname vmap @dns_access
+
+    counter iifname @noapi_interfaces goto DROPLOGINP
 
     # TCP services
     iifname @lan_interfaces counter tcp dport vmap @lan_tcp_accept
@@ -419,6 +430,8 @@ table inet filter {
     # to be added to @upstream_private_rfc1918_allowed.
     # These maps explicitly allow ranges, whereas @internet_access, @lan_access do not.
     # We can consider combining them later.
+
+    counter oifname @uplink_interfaces ip saddr . iifname vmap @allowlist_sources
 
     counter oifname @uplink_interfaces iifname . ip saddr vmap @fwd_iface_wan
     counter oifname @lan_interfaces    iifname . ip saddr vmap @fwd_iface_lan

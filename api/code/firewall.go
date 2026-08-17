@@ -344,7 +344,7 @@ func migrateFirewallGroupsToPolicies() {
 		new_policies := []string{}
 		new_groups := []string{}
 		for _, group_name := range a.Groups {
-			if slices.Contains(ValidPolicyStrings, group_name) {
+			if isValidPolicyName(group_name) {
 				new_policies = append(new_policies, group_name)
 			} else {
 				new_groups = append(new_groups, group_name)
@@ -841,6 +841,21 @@ func modifyCustomInterfaceRulesImpl(crule CustomInterfaceRule, doDelete bool) er
 	crule.Policies = normalizeStringSlice(crule.Policies)
 	//tags not used for anything yet
 	crule.Tags = normalizeStringSlice(crule.Tags)
+	allowlistPolicies := 0
+	for _, policy := range crule.Policies {
+		if !isValidPolicyName(policy) {
+			return fmt.Errorf("Invalid policy: %s", policy)
+		}
+		if _, ok := allowlistNameFromPolicy(policy); ok {
+			allowlistPolicies++
+		}
+	}
+	if allowlistPolicies > 1 {
+		return fmt.Errorf("Only one allowlist policy can be selected")
+	}
+	if allowlistPolicies == 1 && slices.Contains(crule.Policies, "wan") {
+		return fmt.Errorf("wan and an allowlist policy cannot be selected together")
+	}
 
 	if slices.Contains(crule.Policies, DEVICE_POLICY_PERMIT_PRIVATE_UPSTREAM_ACCESS) {
 		if strings.Contains(crule.SrcIP, "/") {
@@ -1531,6 +1546,15 @@ func includesGroupStd(slice []string) (bool, bool, bool, bool) {
 	return wan, dns, lan, api
 }
 
+func includesAllowlistPolicy(policies []string) (string, bool) {
+	for _, policy := range policies {
+		if _, ok := allowlistNameFromPolicy(policy); ok {
+			return policy, true
+		}
+	}
+	return "", false
+}
+
 func applyCustomInterfaceRule(current_rules_all []CustomInterfaceRule, container_rule CustomInterfaceRule, action string, fthru bool) error {
 	current_rules := []CustomInterfaceRule{}
 	for _, rule := range current_rules_all {
@@ -1574,6 +1598,23 @@ func applyCustomInterfaceRule(current_rules_all []CustomInterfaceRule, container
 	var err error
 
 	wan, dns, lan, api := includesGroupStd(container_rule.Policies)
+	allowlistPolicy, allowlist := includesAllowlistPolicy(container_rule.Policies)
+
+	if allowlist {
+		if action == "add" {
+			err = addAllowlistSource(container_rule.SrcIP, container_rule.Interface, allowlistPolicy)
+		} else if action == "delete" {
+			err = DeleteElementFromMapComplex("inet", "filter", gAllowlistSourceMapName, []string{container_rule.SrcIP, container_rule.Interface})
+		}
+		if err != nil {
+			if action != "delete" {
+				log.Println("failed to "+action+" "+container_rule.Interface+" "+container_rule.SrcIP+" on "+gAllowlistSourceMapName, err)
+			}
+			if !fthru {
+				return err
+			}
+		}
+	}
 
 	//if action is delete, ensure no other rules use this policy on this interface
 	if wan && (action != "delete" || wan_count == 0) {
@@ -2384,6 +2425,13 @@ func addInternetVerdict(IP string, Iface string) {
 	}
 }
 
+func addAllowlistVerdict(IP string, Iface string, policy string) {
+	err := addAllowlistSource(IP, Iface, policy)
+	if err != nil {
+		log.Println("addAllowlistVerdict failed", Iface, IP, err)
+	}
+}
+
 func addCustomVerdict(ZoneName string, IP string, Iface string) {
 	//create verdict maps if they do not exist
 	err := CheckMapExists("inet", "filter", ZoneName+"_dst_access")
@@ -2436,7 +2484,6 @@ func hasCustomVerdict(ZoneName string, IP string, Iface string) bool {
 func hasVmapEntries(snap *MapSnapshot, devices map[string]DeviceEntry, entry DeviceEntry, Iface string) bool {
 	//check if a device has its vmap entries established
 
-        // special case for wireguard traffic
 	if entry.MAC != "" && Iface != "wg0" {
 		if !snap.HasElement("ethernet_filter", []string{entry.RecentIP, Iface, entry.MAC}) {
 			return false
@@ -2464,6 +2511,11 @@ func hasVmapEntries(snap *MapSnapshot, devices map[string]DeviceEntry, entry Dev
 		if !exists {
 			return false
 		}
+	}
+
+	if _, ok := includesAllowlistPolicy(val.Policies); ok &&
+		!snap.HasElement(gAllowlistSourceMapName, []string{entry.RecentIP, Iface}) {
+		return false
 	}
 
 	for _, group_name := range val.Groups {
@@ -2649,6 +2701,13 @@ func isAuthorizedPluginDeviceLink(
 	return err == nil
 }
 
+func isPluginDHCPInterface(mac string, iface string, pluginDeviceLinks map[string]string) bool {
+	if mac == "" || iface == "" {
+		return false
+	}
+	return pluginDeviceLinks[mac] == iface
+}
+
 func restorePluginDHCPInterfaces(
 	devices map[string]DeviceEntry,
 	recentDHCPIfaces map[string]string,
@@ -2672,23 +2731,23 @@ func restorePluginDHCPInterfaces(
 }
 
 func notifyFirewallDHCP(device DeviceEntry, iface string) {
-	addLanInterface(iface)
-
 	FWmtx.Lock()
 	defer FWmtx.Unlock()
+	pluginInterface := isPluginDHCPInterface(device.MAC, iface, PluginDeviceLinks)
 
 	if device.MAC != "" {
 		RecentDHCPIface[device.MAC] = iface
 	}
 
-	if device.WGPubKey == "" {
-		return
+	if device.WGPubKey != "" {
+		RecentDHCPWG[device.WGPubKey] = time.Now().Unix()
 	}
 
-	// for wireguard clients only below
-	cur_time := time.Now().Unix()
-
-	RecentDHCPWG[device.WGPubKey] = cur_time
+	if pluginInterface {
+		deleteLanInterface(iface)
+		return
+	}
+	addLanInterface(iface)
 }
 
 func getWireguardActivePeers() ([]string, []string) {
@@ -2821,9 +2880,9 @@ func getMeshPeerInterfaces() map[string]string {
 
 	// Process the leaf stations data
 	for leafIP, leafData := range leafStations {
-		if leafData.Error != nil {
-			fmt.Printf("Error from leaf %s: %v\n", leafIP, leafData.Error)
-			continue
+		if leafData.Error != "" {
+			// Partial failure: other interfaces on this leaf may still have stations
+			log.Printf("Error from leaf %s: %s\n", leafIP, leafData.Error)
 		}
 
 		// Get the route interface for this leaf IP from cache or fetch it
@@ -3010,7 +3069,11 @@ func populateVmapEntries(devices map[string]DeviceEntry, groups []GroupEntry, IP
 		case "dns:family":
 		case "guestonly":
 		default:
-			log.Println("Unknown policy: " + policy_name)
+			if _, ok := allowlistNameFromPolicy(policy_name); ok {
+				addAllowlistVerdict(IP, Iface, policy_name)
+			} else {
+				log.Println("Unknown policy: " + policy_name)
+			}
 		}
 	}
 

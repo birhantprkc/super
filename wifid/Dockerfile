@@ -1,8 +1,8 @@
-# syntax=docker/dockerfile:1@sha256:87999aa3d42bdc6bea60565083ee17e86d1f3339802f543c0d03998580f9cb89
+# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 # check=skip=InvalidDefaultArgInFrom
 ARG ALPINE_REF=alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
-ARG UBUNTU_REF=ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
-ARG CONTAINER_TEMPLATE_REF=ghcr.io/spr-networks/container_template@sha256:869ada7b121e9a0c552674042d32e801da3c4d04145638d9e722918c6377e65f
+ARG UBUNTU_REF=ubuntu:24.04@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea
+ARG CONTAINER_TEMPLATE_REF=ghcr.io/spr-networks/container_template@sha256:26fb53f05f7947ecd1d887d197bd4e74461e6f5b0d0a80d07c3509b9ef9582b8
 ARG SOURCE_DATE_EPOCH
 
 FROM ${ALPINE_REF} AS cacerts
@@ -12,10 +12,10 @@ FROM ${ALPINE_REF} AS cacerts
 # its Rust feature marker is enabled.
 FROM ${ALPINE_REF} AS rust-ap
 ARG TARGETARCH
-ARG OXWIFID_VERSION=0.1.6
-ARG OXWIFID_ARM64_URL=https://github.com/spr-networks/oxwifid/releases/download/v0.1.6/barely-ap-v0.1.6-aarch64-unknown-linux-musl.tar.gz
-ARG OXWIFID_ARM64_ARCHIVE_SHA256=25ee56295deed38526163cfa0f8b76467bffc752ec82dbfb7d679f9edf6e7e2c
-ARG OXWIFID_BARELY_AP_ARM64_SHA256=07aba5181acd431bc5270507757840a465d9bd12e8277a7cc86751219475d0ad
+ARG OXWIFID_VERSION=0.1.8
+ARG OXWIFID_ARM64_URL=https://github.com/spr-networks/oxwifid/releases/download/v0.1.8/barely-ap-v0.1.8-aarch64-unknown-linux-musl.tar.gz
+ARG OXWIFID_ARM64_ARCHIVE_SHA256=7c015bb4597382e465572e25449afc3fed23791d87f8e711b6935084aae3f5c5
+ARG OXWIFID_BARELY_AP_ARM64_SHA256=fff3dc4b7a7ad747772813a5f2dfa1c26a3d0e61bfdff2e8f48948d4db3164ef
 RUN set -eux; \
     case "${TARGETARCH}" in \
       arm64) \
@@ -34,10 +34,10 @@ RUN set -eux; \
 
 FROM ${UBUNTU_REF} AS builder
 ENV DEBIAN_FRONTEND=noninteractive
-ARG UBUNTU_SNAPSHOT=20260701T000000Z
-ARG GO_VERSION=1.25.12
-ARG GO_SHA256_AMD64=234828b7a89e0e303d2556310ee549fbcf253d28de937bac3da13d6294262ac1
-ARG GO_SHA256_ARM64=8b5884aef89600aef5b0b051fb971f11f49bb996521e911f30f02a66884f7bd2
+ARG UBUNTU_SNAPSHOT=20260816T000000Z
+ARG GO_VERSION=1.26.6
+ARG GO_SHA256_AMD64=708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89
+ARG GO_SHA256_ARM64=d0507e9e9d7fe012aae570108cbd76c15de879e17130ab8cb90d4d7445cb1f2e
 ARG TARGETARCH
 COPY --from=cacerts /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 RUN set -eux; \
@@ -98,7 +98,7 @@ RUN make install
 
 FROM ${CONTAINER_TEMPLATE_REF}
 ENV DEBIAN_FRONTEND=noninteractive
-ARG UBUNTU_SNAPSHOT=20260701T000000Z
+ARG UBUNTU_SNAPSHOT=20260816T000000Z
 RUN set -eux; \
     printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: noble noble-updates noble-security\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list.d/ubuntu.sources; \
     printf 'APT::Install-Recommends "false";\nAcquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99reproducible
